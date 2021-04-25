@@ -464,6 +464,9 @@ compileAttributes <- function(pkgdir = ".", verbose = getOption("verbose")) {
     cppFiles <- file.path(srcDir, cppFiles)
     cppFiles <- normalizePath(cppFiles, winslash = "/")
 
+    # check incompatibilities with STRICT_R_HEADERS
+    .check_strict_r_headers(cppFiles)
+
     # generate the includes list based on LinkingTo. Specify plugins-only
     # because we only need as/wrap declarations
     linkingTo <- .readPkgDescField(pkgDesc, "LinkingTo")
@@ -1244,4 +1247,57 @@ sourceCppFunction <- function(func, isVoid, dll, symbol) {
     # return extra declaratiosn and call entries
     list(declarations = declarations,
          call_entries = call_entries)
+}
+
+# check incompatibilities with STRICT_R_HEADERS
+.check_strict_r_headers <- function(cppFiles) {
+    patterns <- c(
+        # src/include/R_ext/RS.h
+        R_PROBLEM_BUFSIZE = "R_PROBLEM_BUFSIZE",
+        PROBLEM = "PROBLEM[[:space:]]*\"",
+        MESSAGE = "MESSAGE[[:space:]]*\"",
+        ERROR = "[[:space:]]+ERROR[$|;|[:space:]]*",
+        RECOVER = "[[:space:]]+RECOVER[[:space:]]*\\(",
+        WARNING = "[[:space:]]+WARNING[[:space:]]*\\(",
+        LOCAL_EVALUATOR = "LOCAL_EVALUATOR",
+        NULL_ENTRY = "NULL_ENTRY",
+        WARN = "[[:space:]]+WARN[$|;|[:space:]]*",
+        Calloc = "[^_]Calloc[[:space:]]*\\(",
+        Realloc = "[^_]Realloc[[:space:]]*\\(",
+        Free = "[^_]Free[[:space:]]*\\(",
+        # src/include/R_ext/Constants.h
+        PI = "[^_]PI",
+        SINGLE_EPS = "SINGLE_EPS",
+        SINGLE_BASE = "SINGLE_BASE",
+        SINGLE_BASE = "SINGLE_BASE",
+        SINGLE_XMAX = "SINGLE_XMAX",
+        DOUBLE_DIGITS = "DOUBLE_DIGITS",
+        DOUBLE_EPS = "DOUBLE_EPS",
+        DOUBLE_XMAX = "DOUBLE_XMAX",
+        DOUBLE_XMIN = "DOUBLE_XMIN"
+    )
+
+    problems <- sapply(cppFiles, function(file) {
+        m <- sapply(patterns, grepl, paste(readLines(file), collapse="\n"))
+        toString(names(m)[m])
+    })
+
+    has_problems <- nchar(problems) > 0
+    if (all(!has_problems))
+        return()
+
+    notice <- paste(
+        "Some src files have incompatibilities with STRICT_R_HEADERS,",
+        "which will be the default in future versions of Rcpp (see",
+        "https://github.com/RcppCore/Rcpp/issues/898 for more information)\n",
+        "Please, replace the following macros:\n",
+        sep="\n"
+    )
+    problems <- paste(
+        paste0(" - File src/", basename(cppFiles[has_problems])),
+        problems[has_problems],
+        sep=": ", collapse="\n"
+    )
+
+    warning(paste0(notice, problems, collapse="\n"), call.=FALSE)
 }
